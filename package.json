@@ -1,0 +1,33 @@
+{
+  "name": "langchain-template-supabase",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "supabase:start": "supabase start",
+    "supabase:stop": "supabase stop",
+    "supabase:dev": "supabase functions serve --env-file supabase/.env",
+    "supabase:deploy": "supabase secrets set --env-file ./supabase/.env && supabase functions deploy chat --import-map supabase/functions/import_map_deploy.json",
+    "dev": "next dev --port 3100 --hostname localhost",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint"
+  },
+  "dependencies": {
+    "@microsoft/fetch-event-source": "^2.0.1",
+    "@supabase/auth-helpers-nextjs": "^0.5.6",
+    "@supabase/auth-helpers-react": "^0.3.1",
+    "@supabase/supabase-js": "^2.11.0",
+    "@types/node": "18.15.3",
+    "@types/react": "18.0.28",
+    "@types/react-dom": "18.0.11",
+    "eslint": "8.36.0",
+    "eslint-config-next": "13.2.4",
+    "next": "13.2.4",
+    "react": "18.2.0",
+    "react-dom": "18.2.0",
+    "typescript": "5.0.2"
+  },
+  "devDependencies": {
+    "supabase": "1.49.4"
+  }
+}
