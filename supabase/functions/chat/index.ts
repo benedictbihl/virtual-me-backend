@@ -1,16 +1,27 @@
 import { serve } from "http/server.ts";
+
+import { RetrievalQAChain } from "langchain/chains";
+import { BufferMemory, ChatMessageHistory } from "langchain/memory";
 import { ChatOpenAI } from "langchain/chat_models/openai";
-import { LLMChain } from "langchain/chains";
 import { CallbackManager } from "langchain/callbacks";
 import {
   ChatPromptTemplate,
   HumanMessagePromptTemplate,
+  SystemMessagePromptTemplate,
+  MessagesPlaceholder,
 } from "langchain/prompts";
+import { SupabaseVectorStore } from "langchain/vectorstores/supabase";
+import { OpenAIEmbeddings } from "langchain/embeddings/openai";
 
 import { corsHeaders } from "../_shared/cors.ts";
+import { createClient } from "../_shared/supabase-client.ts";
 
-const prompt = ChatPromptTemplate.fromPromptMessages([
-  HumanMessagePromptTemplate.fromTemplate("{input}"),
+const chatPrompt = ChatPromptTemplate.fromPromptMessages([
+  SystemMessagePromptTemplate.fromTemplate(
+    "My Name is Benedict and I want you to act as my virtual representation. Answer every question as if you were me, but do not make up any information."
+  ),
+  new MessagesPlaceholder("history"),
+  HumanMessagePromptTemplate.fromTemplate("{question}"),
 ]);
 
 serve(async (req) => {
@@ -20,15 +31,17 @@ serve(async (req) => {
   }
 
   try {
-    const { input } = await req.json();
-    // Check if the request is for a streaming response.
-    if (req.headers.get("accept") !== "text/event-stream") {
-      return new Response(JSON.stringify({ error: "Invalid request" }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
+    const client = createClient(req);
 
+    const vectorStore = await SupabaseVectorStore.fromExistingIndex(
+      new OpenAIEmbeddings(),
+      {
+        client,
+        tableName: "documents",
+        queryName: "match_documents",
+      }
+    );
+    const { input, history } = await req.json();
     // For a streaming response we need to use a TransformStream to
     // convert the LLM's callback-based API into a stream-based API.
     const encoder = new TextEncoder();
@@ -52,10 +65,23 @@ serve(async (req) => {
         },
       }),
     });
-    const chain = new LLMChain({ prompt, llm });
-    // We don't need to await the result of the chain.run() call because
-    // the LLM will invoke the callbackManager's handleLLMEnd() method
-    chain.call({ input }).catch((e) => console.error(e));
+
+    const chain = RetrievalQAChain.fromLLM(llm, vectorStore.asRetriever(), {});
+    const chatHistory = new ChatMessageHistory(history);
+    chain.memory = new BufferMemory({
+      returnMessages: true,
+      memoryKey: "history",
+      chatHistory,
+    });
+
+    chain
+      .call({
+        query: await chatPrompt.format({
+          question: input,
+          history: chatHistory.messages,
+        }),
+      })
+      .catch((e) => console.error(e));
 
     return new Response(stream.readable, {
       headers: { ...corsHeaders, "Content-Type": "text/event-stream" },

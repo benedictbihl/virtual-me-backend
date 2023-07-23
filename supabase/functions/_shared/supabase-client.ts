@@ -1,4 +1,5 @@
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
+import { corsHeaders } from "../_shared/cors.ts";
 
 export function createClient(req: Request) {
   return createSupabaseClient(
@@ -9,7 +10,13 @@ export function createClient(req: Request) {
     // Create client with Auth context of the user that called the function.
     // This way your row-level-security (RLS) policies are applied.
     {
-      global: { headers: { Authorization: req.headers.get("Authorization")! } },
+      global: {
+        headers: {
+          Authorization: req.headers.get("Authorization")!,
+          ...corsHeaders,
+        },
+      },
+      auth: { persistSession: false },
     }
   );
 }
