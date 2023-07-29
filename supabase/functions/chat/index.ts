@@ -1,28 +1,29 @@
 import { serve } from "http/server.ts";
 
-import { RetrievalQAChain } from "langchain/chains";
+import { ConversationalRetrievalQAChain } from "langchain/chains";
 import { BufferMemory, ChatMessageHistory } from "langchain/memory";
 import { ChatOpenAI } from "langchain/chat_models/openai";
 import { CallbackManager } from "langchain/callbacks";
-import {
-  ChatPromptTemplate,
-  HumanMessagePromptTemplate,
-  SystemMessagePromptTemplate,
-  MessagesPlaceholder,
-} from "langchain/prompts";
+
 import { SupabaseVectorStore } from "langchain/vectorstores/supabase";
 import { OpenAIEmbeddings } from "langchain/embeddings/openai";
 
 import { corsHeaders } from "../_shared/cors.ts";
 import { createClient } from "../_shared/supabase-client.ts";
 
-const chatPrompt = ChatPromptTemplate.fromPromptMessages([
-  SystemMessagePromptTemplate.fromTemplate(
-    "My Name is Benedict and I want you to act as my virtual representation. Answer every question as if you were me, but do not make up any information."
-  ),
-  new MessagesPlaceholder("history"),
-  HumanMessagePromptTemplate.fromTemplate("{question}"),
-]);
+const CUSTOM_QUESTION_GENERATOR_CHAIN_PROMPT = `You are being asked questions about Benedict, a 27 Year old Developer living in Munich. Given the following conversation and a follow up question, return the conversation history excerpt that includes any relevant context to the question if it exists and rephrase the follow up question to be a standalone question.
+Chat History:
+{chat_history}
+Follow Up Input: {question}
+Your answer should follow the following format:
+\`\`\`
+Use the following pieces of context to answer the users question.
+If you don't know the answer, charmingly suggest that the users asks the real Benedict, don't try to make up an answer.
+----------------
+<Relevant chat history excerpt as context here>
+Standalone question: <Rephrased question here>
+\`\`\`
+Your answer:`;
 
 serve(async (req) => {
   // This is needed if you're planning to invoke your function from a browser.
@@ -37,8 +38,6 @@ serve(async (req) => {
       new OpenAIEmbeddings(),
       {
         client,
-        tableName: "documents",
-        queryName: "match_documents",
       }
     );
     const { input, history } = await req.json();
@@ -48,7 +47,7 @@ serve(async (req) => {
     const stream = new TransformStream();
     const writer = stream.writable.getWriter();
 
-    const llm = new ChatOpenAI({
+    const streamingModel = new ChatOpenAI({
       streaming: true,
       callbackManager: CallbackManager.fromHandlers({
         handleLLMNewToken: async (token) => {
@@ -66,20 +65,33 @@ serve(async (req) => {
       }),
     });
 
-    const chain = RetrievalQAChain.fromLLM(llm, vectorStore.asRetriever(), {});
     const chatHistory = new ChatMessageHistory(history);
-    chain.memory = new BufferMemory({
-      returnMessages: true,
-      memoryKey: "history",
-      chatHistory,
-    });
+
+    const chain = ConversationalRetrievalQAChain.fromLLM(
+      streamingModel,
+      vectorStore.asRetriever(),
+      {
+        returnSourceDocuments: true,
+        memory: new BufferMemory({
+          memoryKey: "chat_history",
+          inputKey: "question", // The key for the input to the chain
+          outputKey: "text", // The key for the final conversational output of the chain
+          returnMessages: true, // If using with a chat model
+        }),
+        questionGeneratorChainOptions: {
+          llm: new ChatOpenAI({}),
+          template: CUSTOM_QUESTION_GENERATOR_CHAIN_PROMPT,
+        },
+      }
+    );
 
     chain
       .call({
-        query: await chatPrompt.format({
-          question: input,
-          history: chatHistory.messages,
-        }),
+        question: input,
+        chat_history: chatHistory.messages,
+      })
+      .then((r) => {
+        console.log(r);
       })
       .catch((e) => console.error(e));
 

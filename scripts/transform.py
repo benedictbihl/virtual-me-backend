@@ -10,10 +10,10 @@ from langchain.document_loaders import DirectoryLoader
 load_dotenv()
 
 # Define the folder where the wav files are located
-root_folder = os.getenv("ROOT_DIR") or "" + "transcripts/"
+root_folder = os.getenv("ROOT_DIR") or ""
 print("Root folder: ", root_folder)
 
-loader = DirectoryLoader(root_folder, glob="**/*.txt")
+loader = DirectoryLoader(root_folder + "transcripts/", glob="**/*.txt")
 documents = loader.load()
 print("Loaded {} documents".format(len(documents)))
 
