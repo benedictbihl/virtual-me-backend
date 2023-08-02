@@ -9,6 +9,16 @@ create table documents (
   embedding vector(1536) -- 1536 works for OpenAI embeddings, change if needed
 );
 
+-- Create a table to store the chats anonymized
+create table chats (
+    -- Create a column called id with a unique integer value for every row
+    id uuid primary key,
+    -- Create a column called created_at with a timestamp with timezone data type
+    created_at timestamptz,
+    -- Create a column called chat with a JSONB data type
+    chat jsonb
+  );
+
 -- Create a function to search for documents
 create function match_documents (
   query_embedding vector(1536),

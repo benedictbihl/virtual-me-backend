@@ -40,21 +40,43 @@ serve(async (req) => {
         client,
       }
     );
-    const { input, history } = await req.json();
+    const { input, history, conversationID } = await req.json();
     // For a streaming response we need to use a TransformStream to
     // convert the LLM's callback-based API into a stream-based API.
     const encoder = new TextEncoder();
     const stream = new TransformStream();
     const writer = stream.writable.getWriter();
+    const chatHistory = new ChatMessageHistory(history);
+
+    let answer = "";
 
     const streamingModel = new ChatOpenAI({
       streaming: true,
       callbackManager: CallbackManager.fromHandlers({
         handleLLMNewToken: async (token) => {
+          answer += token;
           await writer.ready;
           await writer.write(encoder.encode(`data: ${token}\n\n`));
         },
         handleLLMEnd: async () => {
+          console.log("Writing to DB");
+          const chats = chatHistory.messages.map((m) => {
+            if (m.kwargs) return m.kwargs.content;
+          });
+          chats.push(answer);
+
+          const { error } = await client.from("chats").upsert([
+            {
+              id: conversationID,
+              created_at: new Date().toLocaleString("en-US", {
+                timeZone: "Europe/Berlin",
+              }),
+              chat: chats,
+            },
+          ]);
+          if (error) {
+            console.error(error);
+          }
           await writer.ready;
           await writer.close();
         },
@@ -64,8 +86,6 @@ serve(async (req) => {
         },
       }),
     });
-
-    const chatHistory = new ChatMessageHistory(history);
 
     const chain = ConversationalRetrievalQAChain.fromLLM(
       streamingModel,
@@ -89,9 +109,6 @@ serve(async (req) => {
       .call({
         question: input,
         chat_history: chatHistory.messages,
-      })
-      .then((r) => {
-        console.log(r);
       })
       .catch((e) => console.error(e));
 
